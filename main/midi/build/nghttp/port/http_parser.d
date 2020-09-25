@@ -1,0 +1,15 @@
+port/http_parser.o: \
+ /home/andy/esp/esp-idf/components/nghttp/port/http_parser.c \
+ /home/andy/esp/esp-idf/components/nghttp/port/include/http_parser.h \
+ /home/andy/esp/esp-idf/components/newlib/platform_include/assert.h \
+ /home/andy/devices/esp_examples/peripherals/uart/uart_echo/build/include/sdkconfig.h \
+ /home/andy/esp/esp-idf/components/esp_common/include/esp_compiler.h
+
+/home/andy/esp/esp-idf/components/nghttp/port/include/http_parser.h:
+
+/home/andy/esp/esp-idf/components/newlib/platform_include/assert.h:
+
+/home/andy/devices/esp_examples/peripherals/uart/uart_echo/build/include/sdkconfig.h:
+
+/home/andy/esp/esp-idf/components/esp_common/include/esp_compiler.h:
+/home/andy/esp/esp-idf/components/nghttp/port/http_parser.c:
