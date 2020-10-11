@@ -20,6 +20,10 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
+#define AUDIO_MUTE_IO  13
+#define AUDIO_STBY_IO  32
+#define GPIO_OUTPUT_PIN_SEL ((1ULL<<AUDIO_MUTE_IO) | (1ULL<<AUDIO_STBY_IO))
+
 #define ECHO_TEST_TXD  (GPIO_NUM_23)
 #define ECHO_TEST_RXD  (GPIO_NUM_22)
 #define ECHO_TEST_RTS  (UART_PIN_NO_CHANGE)
@@ -35,6 +39,11 @@ char prev_midi_message[BUF_SIZE + 200] = "";
 bool send_midi_flag = false;
 uint8_t midi_data[BUF_SIZE] = {0};
 int note_cnt = 0;
+
+void set_audio_power(bool val) {
+	gpio_set_level(AUDIO_MUTE_IO, val);
+	gpio_set_level(AUDIO_STBY_IO, val);
+}
 
 void print_midi()
 {
@@ -471,6 +480,8 @@ void app_main(void)
 
     example_wifi_init();
     example_espnow_init();
+
+		set_audio_power(true);
 
     xTaskCreate(echo_task, "uart_echo_task", 4096, NULL, 10, NULL);
 }
