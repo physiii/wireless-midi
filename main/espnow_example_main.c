@@ -1,17 +1,3 @@
-/* ESPNOW Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
-/*
-   This example shows how to use ESPNOW.
-   Prepare two device, one for sending ESPNOW data and another for receiving
-   ESPNOW data.
-*/
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
@@ -29,9 +15,91 @@
 #include "esp_crc.h"
 #include "espnow_example.h"
 
-#include "midi/main/midi.c"
+#include <stdio.h>
+#include "freertos/task.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
 
-static const char *TAG = "espnow_example";
+#define ECHO_TEST_TXD  (GPIO_NUM_23)
+#define ECHO_TEST_RXD  (GPIO_NUM_22)
+#define ECHO_TEST_RTS  (UART_PIN_NO_CHANGE)
+#define ECHO_TEST_CTS  (UART_PIN_NO_CHANGE)
+
+#define ECHO_TEST_TXD_2  (GPIO_NUM_1)
+#define ECHO_TEST_RXD_2  (GPIO_NUM_3)
+
+#define BUF_SIZE (128)
+
+char midi_message[BUF_SIZE + 200] = "";
+char prev_midi_message[BUF_SIZE + 200] = "";
+bool send_midi_flag = false;
+uint8_t midi_data[BUF_SIZE] = {0};
+int note_cnt = 0;
+
+void print_midi()
+{
+  char tmp[100];
+  strcpy(midi_message, "\n=============== Notes ");
+  sprintf(tmp, "%d ============\n", note_cnt);
+  strcat(midi_message, tmp);
+  for (int i = 1; i <= BUF_SIZE; i++) {
+    sprintf(tmp, "%u\t", midi_data[i-1]);
+    strcat(midi_message, tmp);
+    if (i % 6 == 0) strcat(midi_message, "\n");
+  }
+  strcat(midi_message, "\n\n");
+  uart_write_bytes(UART_NUM_2, midi_message, strlen(midi_message));
+}
+
+static void echo_task(void *arg)
+{
+    uart_config_t uart_config = {
+        .baud_rate = 31250,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+    uart_driver_install(UART_NUM_1, BUF_SIZE * 2, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM_1, &uart_config);
+    uart_set_pin(UART_NUM_1, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS);
+
+		uart_config_t uart_config_2 = {
+				.baud_rate = 921600,
+				.data_bits = UART_DATA_8_BITS,
+				.parity    = UART_PARITY_DISABLE,
+				.stop_bits = UART_STOP_BITS_1,
+				.flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+				.source_clk = UART_SCLK_APB,
+		};
+		uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
+		uart_param_config(UART_NUM_2, &uart_config_2);
+		uart_set_pin(UART_NUM_2, ECHO_TEST_TXD_2, ECHO_TEST_RXD_2, ECHO_TEST_RTS, ECHO_TEST_CTS);
+
+    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+    uint8_t *prev_data = (uint8_t *) malloc(BUF_SIZE);
+		uint32_t old_val = 1;
+		char message[BUF_SIZE];
+
+    while (1) {
+        memcpy( prev_data, data, BUF_SIZE );
+        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 1 / portTICK_RATE_MS);
+
+        for (int i = 0; i < BUF_SIZE - 3; i=i+3) {
+          if (prev_data[i] - data[i] || prev_data[i+1] - data[i+1] || prev_data[i+2] - data[i+2]) {
+            int cnt = note_cnt * 3;
+            midi_data[cnt] = data[i];
+            midi_data[cnt+1] = data[i+1];
+            midi_data[cnt+2] = data[i+2];
+            note_cnt++;
+            send_midi_flag = true;
+          }
+        }
+    }
+}
+
+static const char *TAG = "wireless_midi";
 
 static xQueueHandle s_example_espnow_queue;
 
@@ -102,16 +170,35 @@ static void example_espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data,
     }
 }
 
+char prev_msg[100];
 /* Parse received ESPNOW data. */
 int example_espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *state, uint16_t *seq, int *magic)
 {
     example_espnow_data_t *buf = (example_espnow_data_t *)data;
     uint16_t crc, crc_cal = 0;
+    char message_str[20];
+    int len = 50;
 
     if (data_len < sizeof(example_espnow_data_t)) {
         ESP_LOGE(TAG, "Receive ESPNOW data too short, len:%d", data_len);
         return -1;
     }
+
+    char msg[BUF_SIZE + 200];
+    char temp[50];
+    strcpy(msg, "{\"midi\":[");
+    for (int i = 0; i < len; i++) {
+      if (i < len -1)
+        sprintf(temp, "%u,", buf->payload[i]);
+      else
+        sprintf(temp, "%u", buf->payload[i]);
+      strcat(msg, temp);
+    }
+    strcat(msg, "]}\n");
+
+    if (strcmp(prev_msg, msg))
+      uart_write_bytes(UART_NUM_2, msg, strlen(msg));
+    strcpy(prev_msg, msg);
 
     *state = buf->state;
     *seq = buf->seq_num;
@@ -139,8 +226,23 @@ void example_espnow_data_prepare(example_espnow_send_param_t *send_param)
     buf->seq_num = s_example_espnow_seq[buf->type]++;
     buf->crc = 0;
     buf->magic = send_param->magic;
+
+    if (send_midi_flag) {
+      print_midi();
+      for (int i = 0; i < BUF_SIZE; i++) {
+        if (i < note_cnt * 3) {
+          buf->payload[i] = midi_data[i];
+        } else {
+          buf->payload[i] = 0;
+        }
+      }
+      note_cnt = 0;
+      // uart_write_bytes(UART_NUM_2, midi_message, strlen(midi_message));
+      send_midi_flag = false;
+    }
+
     /* Fill all remaining bytes after the data with random values */
-    esp_fill_random(buf->payload, send_param->len - sizeof(example_espnow_data_t));
+    // esp_fill_random(buf->payload, send_param->len - sizeof(example_espnow_data_t));
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len);
 }
 
@@ -153,7 +255,7 @@ static void example_espnow_task(void *pvParameter)
     bool is_broadcast = false;
     int ret;
 
-    vTaskDelay(5000 / portTICK_RATE_MS);
+    vTaskDelay(500 / portTICK_RATE_MS);
     ESP_LOGI(TAG, "Start sending broadcast data");
 
     /* Start sending broadcast ESPNOW data. */
@@ -181,8 +283,8 @@ static void example_espnow_task(void *pvParameter)
                     send_param->count--;
                     if (send_param->count == 0) {
                         ESP_LOGI(TAG, "Send done");
-                        example_espnow_deinit(send_param);
-                        vTaskDelete(NULL);
+                        // example_espnow_deinit(send_param);
+                        // vTaskDelete(NULL);
                     }
                 }
 
@@ -212,6 +314,7 @@ static void example_espnow_task(void *pvParameter)
                 free(recv_cb->data);
                 if (ret == EXAMPLE_ESPNOW_DATA_BROADCAST) {
                     ESP_LOGI(TAG, "Receive %dth broadcast data from: "MACSTR", len: %d", recv_seq, MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
+
 
                     /* If MAC address does not exist in peer list, add it to peer list. */
                     if (esp_now_is_peer_exist(recv_cb->mac_addr) == false) {
@@ -369,5 +472,5 @@ void app_main(void)
     example_wifi_init();
     example_espnow_init();
 
-		midi_main();
+    xTaskCreate(echo_task, "uart_echo_task", 4096, NULL, 10, NULL);
 }

@@ -1,4 +1,5 @@
 code/build
+build
 *.bak
 *.kicad_pcb-bak
 *_autosave*
