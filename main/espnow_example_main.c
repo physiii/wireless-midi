@@ -34,6 +34,9 @@
 
 #define BUF_SIZE (128)
 
+#define ESP_INTR_FLAG_DEFAULT 0
+static xQueueHandle gpio_evt_queue = NULL;
+
 char midi_message[BUF_SIZE + 200] = "";
 char prev_midi_message[BUF_SIZE + 200] = "";
 bool send_midi_flag = false;
@@ -43,6 +46,16 @@ int note_cnt = 0;
 void set_audio_power(bool val) {
 	gpio_set_level(AUDIO_MUTE_IO, val);
 	gpio_set_level(AUDIO_STBY_IO, val);
+}
+
+void gpio_init() {
+		gpio_config_t io_conf;
+		io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
 }
 
 void print_midi()
@@ -480,8 +493,8 @@ void app_main(void)
 
     example_wifi_init();
     example_espnow_init();
+		gpio_init();
 
 		set_audio_power(true);
-
     xTaskCreate(echo_task, "uart_echo_task", 4096, NULL, 10, NULL);
 }

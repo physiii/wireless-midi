@@ -3,7 +3,7 @@ import serial
 import json
 
 port = mido.open_output('Midi Through:Midi Through Port-0 14:0')
-ser = serial.Serial('/dev/ttyUSB0', 921600)
+ser = serial.Serial('/dev/game_daughter', 921600)
 
 def is_json(myjson):
   try:
